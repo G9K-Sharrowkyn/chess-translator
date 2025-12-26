@@ -1,0 +1,505 @@
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Tłumacz Książek Szachowych</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            padding: 20px;
+        }
+        
+        .container {
+            background: white;
+            border-radius: 20px;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+            padding: 40px;
+            max-width: 600px;
+            width: 100%;
+        }
+        
+        h1 {
+            color: #333;
+            text-align: center;
+            margin-bottom: 10px;
+            font-size: 2em;
+        }
+        
+        .chess-symbols {
+            text-align: center;
+            font-size: 2em;
+            margin-bottom: 20px;
+            color: #667eea;
+        }
+        
+        .subtitle {
+            text-align: center;
+            color: #666;
+            margin-bottom: 30px;
+        }
+        
+        .upload-area {
+            border: 3px dashed #667eea;
+            border-radius: 10px;
+            padding: 40px;
+            text-align: center;
+            background: #f8f9ff;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            margin-bottom: 20px;
+        }
+        
+        .upload-area:hover {
+            background: #eef1ff;
+            border-color: #764ba2;
+        }
+        
+        .upload-area.dragover {
+            background: #e0e7ff;
+            border-color: #764ba2;
+            transform: scale(1.02);
+        }
+        
+        .upload-icon {
+            font-size: 3em;
+            margin-bottom: 10px;
+        }
+        
+        .file-input {
+            display: none;
+        }
+        
+        .file-info {
+            background: #f0f4f8;
+            padding: 15px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+            display: none;
+        }
+        
+        .file-info.show {
+            display: block;
+        }
+        
+        .options {
+            margin-bottom: 20px;
+        }
+        
+        .option-group {
+            margin-bottom: 15px;
+        }
+        
+        label {
+            display: block;
+            color: #555;
+            margin-bottom: 5px;
+            font-weight: 500;
+        }
+        
+        select {
+            width: 100%;
+            padding: 10px;
+            border: 2px solid #e0e0e0;
+            border-radius: 8px;
+            font-size: 16px;
+            background: white;
+            cursor: pointer;
+        }
+        
+        select:focus {
+            outline: none;
+            border-color: #667eea;
+        }
+        
+        .btn {
+            width: 100%;
+            padding: 15px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border: none;
+            border-radius: 8px;
+            font-size: 18px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            position: relative;
+            overflow: hidden;
+        }
+        
+        .btn:hover:not(:disabled) {
+            transform: translateY(-2px);
+            box-shadow: 0 10px 20px rgba(102, 126, 234, 0.4);
+        }
+        
+        .btn:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+        }
+        
+        .status {
+            margin-top: 20px;
+            padding: 15px;
+            border-radius: 8px;
+            display: none;
+            position: relative;
+        }
+        
+        .status.show {
+            display: block;
+        }
+        
+        .status.info {
+            background: #e3f2fd;
+            color: #1976d2;
+            border: 1px solid #90caf9;
+        }
+        
+        .status.success {
+            background: #e8f5e9;
+            color: #2e7d32;
+            border: 1px solid #81c784;
+        }
+        
+        .status.error {
+            background: #ffebee;
+            color: #c62828;
+            border: 1px solid #ef5350;
+        }
+        
+        .status.processing {
+            background: #fff3e0;
+            color: #f57c00;
+            border: 1px solid #ffb74d;
+        }
+        
+        .progress-bar {
+            width: 100%;
+            height: 6px;
+            background: #e0e0e0;
+            border-radius: 3px;
+            margin-top: 10px;
+            overflow: hidden;
+            display: none;
+        }
+        
+        .progress-bar.show {
+            display: block;
+        }
+        
+        .progress-fill {
+            height: 100%;
+            background: linear-gradient(90deg, #667eea, #764ba2);
+            border-radius: 3px;
+            width: 0%;
+            transition: width 0.3s ease;
+            animation: progress-animation 2s ease-in-out infinite;
+        }
+        
+        @keyframes progress-animation {
+            0% {
+                background-position: 0% 50%;
+            }
+            100% {
+                background-position: 100% 50%;
+            }
+        }
+        
+        .download-link {
+            display: inline-block;
+            padding: 10px 20px;
+            background: #4caf50;
+            color: white;
+            text-decoration: none;
+            border-radius: 8px;
+            margin-top: 10px;
+            transition: all 0.3s ease;
+        }
+        
+        .download-link:hover {
+            background: #45a049;
+            transform: translateY(-2px);
+        }
+        
+        .spinner {
+            display: inline-block;
+            width: 20px;
+            height: 20px;
+            border: 3px solid rgba(255,255,255,.3);
+            border-radius: 50%;
+            border-top-color: #fff;
+            animation: spin 1s ease-in-out infinite;
+            margin-right: 10px;
+        }
+        
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+        
+        .feature-list {
+            background: #f5f7ff;
+            border-radius: 8px;
+            padding: 15px;
+            margin-top: 20px;
+        }
+        
+        .feature-list h3 {
+            color: #667eea;
+            margin-bottom: 10px;
+        }
+        
+        .feature-list ul {
+            list-style: none;
+            padding-left: 0;
+        }
+        
+        .feature-list li {
+            padding: 5px 0;
+            color: #666;
+        }
+        
+        .feature-list li:before {
+            content: "✓ ";
+            color: #4caf50;
+            font-weight: bold;
+            margin-right: 5px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Tłumacz Książek Szachowych</h1>
+        <div class="chess-symbols">♔ ♕ ♖ ♗ ♘ ♙</div>
+        <p class="subtitle">Tłumaczenie z angielskiego na polski z zachowaniem notacji szachowej</p>
+        
+        <div class="upload-area" id="uploadArea">
+            <div class="upload-icon">📁</div>
+            <p><strong>Kliknij lub przeciągnij plik PDF</strong></p>
+            <p style="color: #999; font-size: 14px; margin-top: 5px;">Maksymalny rozmiar: 50 MB</p>
+            <input type="file" id="fileInput" class="file-input" accept=".pdf">
+        </div>
+        
+        <div class="file-info" id="fileInfo">
+            <strong>Wybrany plik:</strong> <span id="fileName"></span><br>
+            <strong>Rozmiar:</strong> <span id="fileSize"></span>
+        </div>
+        
+        <div class="options">
+            <div class="option-group">
+                <label for="modeSelect">Tryb tłumaczenia:</label>
+                <select id="modeSelect">
+                    <option value="word" selected>Word-level (zalecany) - zachowuje oryginalne rozmieszczenie</option>
+                    <option value="block">Block-level - tłumaczy całe bloki tekstu</option>
+                </select>
+            </div>
+        </div>
+        
+        <button class="btn" id="translateBtn" disabled>
+            <span id="btnText">Wybierz plik PDF</span>
+        </button>
+        
+        <div class="status" id="status">
+            <div id="statusText"></div>
+            <div class="progress-bar" id="progressBar">
+                <div class="progress-fill" id="progressFill"></div>
+            </div>
+        </div>
+        
+        <div class="feature-list">
+            <h3>Funkcje:</h3>
+            <ul>
+                <li>Zachowuje notację szachową (1.e4 e5 2.Nf3)</li>
+                <li>Obsługuje polskie znaki diakrytyczne (ą, ę, ć, ł, ń, ó, ś, ź, ż)</li>
+                <li>Zachowuje diagramy i obrazki</li>
+                <li>Inteligentne rozmieszczenie tekstu</li>
+                <li>Używa modelu GPT-4 mini dla wysokiej jakości tłumaczeń</li>
+            </ul>
+        </div>
+    </div>
+    
+    <script>
+        const uploadArea = document.getElementById('uploadArea');
+        const fileInput = document.getElementById('fileInput');
+        const fileInfo = document.getElementById('fileInfo');
+        const fileName = document.getElementById('fileName');
+        const fileSize = document.getElementById('fileSize');
+        const translateBtn = document.getElementById('translateBtn');
+        const btnText = document.getElementById('btnText');
+        const status = document.getElementById('status');
+        const statusText = document.getElementById('statusText');
+        const progressBar = document.getElementById('progressBar');
+        const progressFill = document.getElementById('progressFill');
+        const modeSelect = document.getElementById('modeSelect');
+        
+        let selectedFile = null;
+        
+        // Click to upload
+        uploadArea.addEventListener('click', () => fileInput.click());
+        
+        // Drag and drop
+        uploadArea.addEventListener('dragover', (e) => {
+            e.preventDefault();
+            uploadArea.classList.add('dragover');
+        });
+        
+        uploadArea.addEventListener('dragleave', () => {
+            uploadArea.classList.remove('dragover');
+        });
+        
+        uploadArea.addEventListener('drop', (e) => {
+            e.preventDefault();
+            uploadArea.classList.remove('dragover');
+            
+            const files = e.dataTransfer.files;
+            if (files.length > 0 && files[0].type === 'application/pdf') {
+                handleFile(files[0]);
+            } else {
+                showStatus('Proszę wybrać plik PDF', 'error');
+            }
+        });
+        
+        // File input change
+        fileInput.addEventListener('change', (e) => {
+            if (e.target.files.length > 0) {
+                handleFile(e.target.files[0]);
+            }
+        });
+        
+        function handleFile(file) {
+            if (file.size > 50 * 1024 * 1024) {
+                showStatus('Plik jest za duży (max 50 MB)', 'error');
+                return;
+            }
+            
+            selectedFile = file;
+            fileName.textContent = file.name;
+            fileSize.textContent = formatFileSize(file.size);
+            fileInfo.classList.add('show');
+            translateBtn.disabled = false;
+            btnText.textContent = 'Rozpocznij tłumaczenie';
+            hideStatus();
+        }
+        
+        function formatFileSize(bytes) {
+            if (bytes < 1024) return bytes + ' B';
+            if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
+            return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
+        }
+        
+        function showStatus(message, type = 'info') {
+            status.className = `status show ${type}`;
+            statusText.innerHTML = message;
+            
+            if (type === 'processing') {
+                progressBar.classList.add('show');
+            } else {
+                progressBar.classList.remove('show');
+            }
+        }
+        
+        function hideStatus() {
+            status.classList.remove('show');
+            progressBar.classList.remove('show');
+        }
+        
+        async function translatePDF() {
+            if (!selectedFile) return;
+            
+            translateBtn.disabled = true;
+            btnText.innerHTML = '<span class="spinner"></span>Tłumaczenie w toku...';
+            
+            const formData = new FormData();
+            formData.append('file', selectedFile);
+            formData.append('mode', modeSelect.value);
+            
+            showStatus('Przesyłanie pliku do serwera...', 'processing');
+            progressFill.style.width = '30%';
+            
+            try {
+                setTimeout(() => {
+                    if (translateBtn.disabled) {
+                        showStatus('Tłumaczenie w toku... To może potrwać kilka minut dla dużych plików.', 'processing');
+                        progressFill.style.width = '60%';
+                    }
+                }, 3000);
+                
+                const response = await fetch('http://localhost:8000/translate', {
+                    method: 'POST',
+                    body: formData
+                });
+                
+                if (!response.ok) {
+                    throw new Error(`HTTP error! status: ${response.status}`);
+                }
+                
+                progressFill.style.width = '90%';
+                showStatus('Pobieranie przetłumaczonego pliku...', 'processing');
+                
+                const blob = await response.blob();
+                const url = window.URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = `translated_${selectedFile.name}`;
+                
+                progressFill.style.width = '100%';
+                
+                showStatus(
+                    `Tłumaczenie zakończone! 
+                    <a href="${url}" download="translated_${selectedFile.name}" class="download-link">
+                        📥 Pobierz przetłumaczony PDF
+                    </a>`, 
+                    'success'
+                );
+                
+                // Auto-download
+                a.click();
+                
+                // Clean up
+                setTimeout(() => window.URL.revokeObjectURL(url), 100);
+                
+            } catch (error) {
+                console.error('Translation error:', error);
+                let errorMsg = 'Wystąpił błąd podczas tłumaczenia.';
+                
+                if (error.message.includes('Failed to fetch')) {
+                    errorMsg = 'Nie można połączyć się z serwerem. Upewnij się, że serwer działa na porcie 8000.';
+                } else if (error.message.includes('401')) {
+                    errorMsg = 'Błąd autoryzacji. Sprawdź klucz API OpenAI.';
+                }
+                
+                showStatus(errorMsg, 'error');
+            } finally {
+                translateBtn.disabled = false;
+                btnText.textContent = 'Rozpocznij tłumaczenie';
+            }
+        }
+        
+        translateBtn.addEventListener('click', translatePDF);
+        
+        // Check server availability on load
+        window.addEventListener('load', async () => {
+            try {
+                const response = await fetch('http://localhost:8000/health');
+                const data = await response.json();
+                
+                if (!data.translator_available) {
+                    showStatus('⚠️ Uwaga: Translator nie jest dostępny. Sprawdź klucz API OpenAI.', 'error');
+                }
+            } catch (error) {
+                showStatus('⚠️ Serwer nie odpowiada. Uruchom setup_and_run.py', 'error');
+            }
+        });
+    </script>
+</body>
+</html>
