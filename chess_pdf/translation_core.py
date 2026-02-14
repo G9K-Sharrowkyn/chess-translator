@@ -99,7 +99,8 @@ def _find_notation_prefix_end(text: str) -> int | None:
         if last_end is not None:
             between = text[last_end:token_start]
             if '\n' in between:
-                if token in ("N", "t", "+", "#"):
+                # Keep scanning across wrapped notation lines.
+                if _is_chess_notation_token(token) or token in ("N", "t", "+", "#"):
                     last_end = m.end()
                     continue
                 break
@@ -192,14 +193,90 @@ def _coalesce_style_runs(spans: List[Dict]) -> List[Dict]:
     return merged
 
 
+def _snap_cut_to_boundary(text: str, cut: int, lo: int, hi: int, window: int = 24) -> int:
+    """Snap a cut index to nearby whitespace to avoid splitting words."""
+    cut = max(lo, min(hi, cut))
+    if cut <= lo or cut >= hi:
+        return cut
+
+    if text[cut - 1].isspace() or (cut < len(text) and text[cut].isspace()):
+        return cut
+
+    for delta in range(1, window + 1):
+        left = cut - delta
+        if left > lo and (text[left - 1].isspace() or (left < len(text) and text[left].isspace())):
+            return left
+        right = cut + delta
+        if right < hi and (text[right - 1].isspace() or (right < len(text) and text[right].isspace())):
+            return right
+
+    return cut
+
+
+def _project_style_runs_onto_text(style_runs: List[Dict], target_text: str) -> List[Dict]:
+    """Project bold/non-bold style layout onto newer text of different content."""
+    if not target_text:
+        return []
+    if not style_runs:
+        return [{"text": target_text, "bold": False}]
+    if len(style_runs) == 1:
+        return [{"text": target_text, "bold": bool(style_runs[0].get("bold"))}]
+
+    weights = [max(1, len((run.get("text") or ""))) for run in style_runs]
+    total = max(1, sum(weights))
+    text_len = len(target_text)
+
+    cuts: List[int] = []
+    cumulative = 0
+    prev = 0
+    for w in weights[:-1]:
+        cumulative += w
+        raw_cut = int(round(text_len * cumulative / total))
+        snapped = _snap_cut_to_boundary(target_text, raw_cut, prev, text_len)
+        if snapped < prev:
+            snapped = prev
+        cuts.append(snapped)
+        prev = snapped
+
+    projected: List[Dict] = []
+    cursor = 0
+    for run, end in zip(style_runs, cuts + [text_len]):
+        segment = target_text[cursor:end]
+        cursor = end
+        if not segment:
+            continue
+        bold = bool(run.get("bold"))
+        if projected and projected[-1]["bold"] == bold:
+            projected[-1]["text"] += segment
+        else:
+            projected.append({"text": segment, "bold": bold})
+
+    return projected or [{"text": target_text, "bold": False}]
+
+
 def _build_runs_from_block(block: Dict) -> List[Dict]:
-    """Build style runs from block spans."""
-    spans = block.get("spans", [])
-    if not spans:
-        text = block.get("text", "") or ""
+    """Build style runs from original font spans and current block text."""
+    text = block.get("text", "") or ""
+    style_spans = (
+        block.get("_style_spans_backup")
+        or block.get("_ocr_spans_backup")
+        or block.get("spans", [])
+    )
+
+    if not style_spans:
         return [{"text": text, "bold": False}] if text else []
-    runs = _coalesce_style_runs(spans)
-    return _split_bold_at_move_boundary(runs)
+
+    style_runs = _coalesce_style_runs(style_spans)
+    if not style_runs:
+        return [{"text": text, "bold": False}] if text else []
+    if not text:
+        return style_runs
+
+    style_text = "".join(run.get("text", "") for run in style_runs)
+    if style_text == text:
+        return style_runs
+
+    return _project_style_runs_onto_text(style_runs, text)
 
 
 def _runs_to_marked_text(runs: List[Dict]) -> str:

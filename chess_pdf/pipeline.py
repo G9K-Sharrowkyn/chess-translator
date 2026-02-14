@@ -4,15 +4,40 @@
 from typing import Optional
 import fitz
 import os
+import re
 
 from .config import log, VISION_USE_CLAUDE
 from .fonts import get_fonts_with_polish_chars
 from .geometry import find_board_axis_regions
 from .extraction import extract_text_blocks
+from .san import postprocess_translated_marked
 from .translation_core import translate_blocks_intelligent, _build_runs_from_block
 from .rendering import render_translated_page, parse_marked_segments
 from .vision_corrections import VisionCorrectionService, ClaudeVisionService
 from .diagnostics import run_diagnostics_on_translation
+
+_ENGLISH_HINT_RE = re.compile(
+    r"\b(the|and|with|for|this|that|was|were|would|should|could|"
+    r"black|white|move|correct|analysis|leading|clear|advantage|cannot|"
+    r"game|position|next|take|pain|follows)\b",
+    flags=re.IGNORECASE,
+)
+_POLISH_HINT_RE = re.compile(
+    r"[ąćęłńóśźż]|"
+    r"\b(i|oraz|że|się|jest|był|była|białe|czarne|ruch|przewag|wkrótce|pozycj)\b",
+    flags=re.IGNORECASE,
+)
+
+
+def _looks_like_english_prose(text: str) -> bool:
+    plain = (text or "").replace("[[B]]", "").replace("[[/B]]", "").strip()
+    if not plain:
+        return False
+    if len(plain) < 18:
+        return False
+    english_hits = len(_ENGLISH_HINT_RE.findall(plain))
+    polish_hits = len(_POLISH_HINT_RE.findall(plain))
+    return english_hits >= 2 and polish_hits == 0
 
 
 def _rebuild_block_text_from_spans(block: dict) -> str:
@@ -159,8 +184,19 @@ def translate_pdf(
 
         if claude_direct_mode:
             log.info(f"Skipping GPT translation (Claude already translated)")
+            fallback_blocks = []
             for block in blocks:
-                block["translated_marked"] = _rebuild_block_text_from_spans(block)
+                direct_text = _rebuild_block_text_from_spans(block)
+                block["translated_marked"] = postprocess_translated_marked(direct_text)
+                if translator is not None and _looks_like_english_prose(block["translated_marked"]):
+                    fallback_blocks.append(block)
+
+            if fallback_blocks and translator is not None:
+                log.warning(
+                    "Direct Vision left %d English-looking blocks; retrying via GPT translator fallback",
+                    len(fallback_blocks),
+                )
+                translate_blocks_intelligent(fallback_blocks, translator)
         else:
             log.info(f"Translating blocks on page {page_num + 1}")
             blocks = translate_blocks_intelligent(blocks, translator)

@@ -16,6 +16,18 @@ from .postprocess import postprocess_translation, looks_like_refusal
 
 log = logging.getLogger(__name__)
 
+_ENGLISH_MARKER_RE = re.compile(
+    r"\b(the|and|with|for|this|that|was|were|would|should|could|"
+    r"black|white|move|correct|analysis|leading|clear|advantage|cannot|"
+    r"here|save|energy|game|position|next|take|pain|follows)\b",
+    flags=re.IGNORECASE,
+)
+_POLISH_MARKER_RE = re.compile(
+    r"[ąćęłńóśźż]|"
+    r"\b(i|oraz|że|się|jest|był|była|białe|czarne|ruch|przewag|wkrótce|pozycj)\b",
+    flags=re.IGNORECASE,
+)
+
 
 class GPT4MiniTranslator(Translator):
     """Translator using OpenAI GPT-4o-mini with chess notation protection."""
@@ -93,6 +105,9 @@ Keep formatting markers [[B]] and [[/B]] EXACTLY as they are.
                     log.debug(f"[GPT4Mini] After postprocess: {candidate[:100]}")
 
                     if candidate and not looks_like_refusal(candidate):
+                        if _looks_untranslated_english(text, candidate):
+                            log.warning("[GPT4Mini] Candidate still looks untranslated; retrying")
+                            continue
                         translated = candidate
                         log.info("[GPT4Mini] translation ok")
                         break
@@ -113,6 +128,27 @@ Keep formatting markers [[B]] and [[/B]] EXACTLY as they are.
             results.append(translated if translated is not None else text)
 
         return results
+
+
+def _normalize_compare_text(text: str) -> str:
+    text = re.sub(r"\s+", " ", text or "").strip().lower()
+    return text
+
+
+def _looks_untranslated_english(original: str, candidate: str) -> bool:
+    cand_norm = _normalize_compare_text(candidate)
+    orig_norm = _normalize_compare_text(original)
+    if not cand_norm:
+        return True
+    if cand_norm == orig_norm:
+        return True
+
+    if len(cand_norm) < 18:
+        return False
+
+    english_hits = len(_ENGLISH_MARKER_RE.findall(candidate))
+    polish_hits = len(_POLISH_MARKER_RE.findall(candidate))
+    return english_hits >= 2 and polish_hits == 0
 
 
 def _is_rate_limit_error(exc: Exception) -> bool:

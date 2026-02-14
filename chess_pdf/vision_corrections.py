@@ -72,6 +72,7 @@ _SPECIAL_SYMBOL_MAP = {
     "\u2018": "'", "\u2019": "'", "\u201a": "'",
     "\u201c": '"', "\u201d": '"', "\u201e": '"',
     "\u2026": "...", "\u202f": " ", "\u2032": "'", "\u2033": '"',
+    "\u2020": "+", "\u2021": "+", "\u271d": "+", "\u271e": "+",
     "\u2212": "-", "\u2213": "-/+", "\u221e": "?", "\u2219": ".",
     "\u2190": "<-", "\u2192": "->", "\u2194": "<->", "\u21d2": "->", "\u21d4": "<->",
     "\u2715": "x",
@@ -150,6 +151,9 @@ def _normalize_transcribed_text(text: str) -> str:
     while "  " in normalized:
         normalized = normalized.replace("  ", " ")
     normalized = normalized.replace(" \n", "\n").replace("\n ", "\n")
+    normalized = re.sub(r"\+\s*/\s*-", "+/-", normalized)
+    normalized = re.sub(r"-\s*/\s*\+", "-/+", normalized)
+    normalized = re.sub(r"\b(\d+)\.\.(?=[^\.\s])", r"\1...", normalized)
     return normalized
 
 
@@ -470,7 +474,7 @@ class ClaudeVisionService:
             return
 
         self._debug_data = []
-        candidates = list(_collect_candidates(blocks))
+        candidates = list(_collect_candidates(blocks, include_all=self.direct_translation))
         logger.info(f"Claude Vision: Found {len(candidates)} suspicious spans")
         if not candidates:
             _verify_chess_piece_consistency(blocks, page_number)
@@ -631,13 +635,17 @@ class ClaudeVisionService:
         _apply_correction(cand, new_text, add_markers=(context == "direct"))
 
 
-def _collect_candidates(blocks: Iterable[Dict]) -> Iterable[SpanCandidate]:
+def _collect_candidates(blocks: Iterable[Dict], *, include_all: bool = False) -> Iterable[SpanCandidate]:
     """Collect BLOCKS for Vision API correction."""
     for b_idx, block in enumerate(blocks):
         if "_ocr_spans_backup" not in block:
             spans = block.get("spans")
             if spans is not None:
                 block["_ocr_spans_backup"] = [_sanitize_span_copy(s) for s in spans]
+        if "_style_spans_backup" not in block:
+            spans = block.get("spans")
+            if spans is not None:
+                block["_style_spans_backup"] = [_sanitize_span_copy(s) for s in spans]
 
         text = block.get("text", "").strip()
         if not text:
@@ -647,7 +655,7 @@ def _collect_candidates(blocks: Iterable[Dict]) -> Iterable[SpanCandidate]:
         if not bbox:
             continue
 
-        if len(text) > 300:
+        if (not include_all) and len(text) > 300:
             has_notation = bool(re.search(r'\d|[a-h][1-8]|[KQRBN]|[!?+#]|\.\.\.', text))
             has_special = any(ord(ch) > 127 for ch in text)
             if not has_notation and not has_special:
@@ -817,7 +825,10 @@ def _apply_correction(candidate: SpanCandidate, new_text: str, *, add_markers: b
     else:
         block.pop("translated_marked", None)
 
-    spans = block.get("_ocr_spans_backup") or block.get("spans") or []
+    spans = block.get("spans") or []
+    if not spans:
+        backup_spans = block.get("_ocr_spans_backup") or []
+        spans = [_sanitize_span_copy(s) for s in backup_spans]
     if spans:
         first = True
         for span in spans:

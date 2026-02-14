@@ -4,14 +4,19 @@
 from typing import List, Dict, Optional
 import fitz
 import re
+import os
 
 from .config import B_START, B_END, log
 from .fonts import ensure_font_embedded
 from .geometry import _avoid_regions
-from .metrics import text_width_fitz, get_safe_text_width, find_optimal_fontsize
+from .metrics import text_width_fitz, get_safe_text_width
 
-BOLD_SCALE_DEFAULT = 1.06
+BOLD_SCALE_DEFAULT = 1.0
 BASE_SIZE_CLAMP = (9.0, 15.75)
+UNIFIED_FONT_SIZE = max(
+    8.0,
+    min(18.0, float(os.getenv("CHESS_UNIFIED_FONT_SIZE", "8.5")))
+)
 
 
 def _collect_page_baseline_sizes(blocks: List[Dict]) -> float:
@@ -259,22 +264,14 @@ def render_text_in_rect(
     page: fitz.Page, text: str, rect: fitz.Rect, fontname: str,
     original_spans: Optional[List[Dict]] = None
 ):
-    """Render text in rectangle with optimal font size."""
+    """Render text in rectangle using the global unified font size."""
     if not text.strip():
         return
     MARGIN = 2.0
     work_rect = fitz.Rect(rect.x0 + MARGIN, rect.y0 + MARGIN, rect.x1 - MARGIN, rect.y1 - MARGIN)
     if work_rect.width <= 0 or work_rect.height <= 0:
         return
-    if original_spans:
-        sizes = [s.get("font_size", 11) for s in original_spans if s.get("font_size")]
-        start_fontsize = max(6.0, min(14.0, (sum(sizes)/len(sizes)) * 0.9)) if sizes else 10.0
-    else:
-        start_fontsize = 10.0
-    fontsize = find_optimal_fontsize(text, work_rect.width, work_rect.height, start_fontsize)
-    if fontsize < 4.0:
-        log.warning(f"Font size too small ({fontsize:.1f}) for text: {text[:30]}...")
-        fontsize = 6.0
+    fontsize = UNIFIED_FONT_SIZE
     render_wrapped_text_in_rect(page, text, work_rect, fontsize, fontname)
 
 
@@ -285,16 +282,12 @@ def render_translated_page(
     font_path_bold: Optional[str],
     skip_regions: Optional[List[fitz.Rect]] = None,
 ):
-    """Render translated blocks on PDF page with consistent font sizes."""
+    """Render translated blocks on PDF page with one global font size."""
     skip_regions = skip_regions or []
 
     regular_font = ensure_font_embedded(page, font_path_regular, "polish_regular")
     bold_font = ensure_font_embedded(page, font_path_bold, "polish_bold") if font_path_bold else regular_font
 
-    base_regular_size = _collect_page_baseline_sizes(blocks)
-    bold_scale = BOLD_SCALE_DEFAULT
-
-    min_scale = 1.0
     valid_blocks = []
 
     for block in blocks:
@@ -318,31 +311,34 @@ def render_translated_page(
         segments = parse_marked_segments(marked)
         valid_blocks.append((block, segments, work_rect, safe_rect))
 
-        reg = base_regular_size
-        bold = base_regular_size * bold_scale
-        H = _measure_height_dual(segments, work_rect.width, reg, bold, regular_font, bold_font)
-        if H > work_rect.height:
-            lo, hi = 0.6, 1.0
-            for _ in range(14):
-                mid = (lo + hi) / 2.0
-                r = base_regular_size * mid
-                b = r * bold_scale
-                Hm = _measure_height_dual(segments, work_rect.width, r, b, regular_font, bold_font)
-                if Hm <= work_rect.height:
-                    lo = mid
-                else:
-                    hi = mid
-                if hi - lo < 0.02:
-                    break
-            min_scale = min(min_scale, lo)
-
-    final_regular_size = base_regular_size * min_scale
-    final_bold_size = final_regular_size * bold_scale
+    final_regular_size = UNIFIED_FONT_SIZE
+    final_bold_size = UNIFIED_FONT_SIZE
 
     move_head_re = re.compile(r'^\s*\d{1,3}\s*(?:\.\.\.|\.)(?:\s|$)')
 
     for block, segments, work_rect, safe_rect in valid_blocks:
-        page.draw_rect(safe_rect, color=None, fill=(1, 1, 1))
+        plain_text = "".join(seg.get("text", "") for seg in segments)
+        compact_len = len(re.sub(r"\s+", "", plain_text))
+        rect_area = max(safe_rect.get_area(), 1.0)
+        sparse_block = bool(compact_len > 0 and rect_area > 5000 and (rect_area / compact_len) > 350)
+
+        if sparse_block:
+            required_h = _measure_height_dual(
+                segments,
+                work_rect.width,
+                final_regular_size,
+                final_bold_size,
+                regular_font,
+                bold_font,
+            )
+            erase_height = max(final_bold_size * 2.0, required_h + 4.0)
+            erase_y1 = min(safe_rect.y1, safe_rect.y0 + erase_height)
+            erase_rect = fitz.Rect(safe_rect.x0, safe_rect.y0, safe_rect.x1, erase_y1)
+        else:
+            erase_rect = safe_rect
+
+        if erase_rect.height > 0:
+            page.draw_rect(erase_rect, color=None, fill=(1, 1, 1))
 
         for i in range(len(segments) - 1):
             if segments[i].get("bold") and move_head_re.match(segments[i].get("text", "")):

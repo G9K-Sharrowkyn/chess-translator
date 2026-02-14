@@ -27,6 +27,25 @@ SAN_TOKEN_RE = re.compile(r"""
     )
 """, re.X)
 
+_FIGURINE_MAP = str.maketrans({
+    "\u2654": "K",
+    "\u2655": "Q",
+    "\u2656": "R",
+    "\u2657": "B",
+    "\u2658": "N",
+    "\u2659": "",
+    "\u265A": "K",
+    "\u265B": "Q",
+    "\u265C": "R",
+    "\u265D": "B",
+    "\u265E": "N",
+    "\u265F": "",
+    "\u2020": "+",
+    "\u2021": "+",
+    "\u271d": "+",
+    "\u271e": "+",
+})
+
 
 def _fix_spaced_punctuation(s: str) -> str:
     s = re.sub(r'!\s*!', '!!', s)
@@ -76,6 +95,11 @@ def _normalize_castling_and_times(s: str) -> str:
 
 
 def _normalize_piece_glyphs_in_context(s: str) -> str:
+    if not s:
+        return s
+    s = s.translate(_FIGURINE_MAP)
+    s = re.sub(r"\+\s*/\s*-", "+/-", s)
+    s = re.sub(r"-\s*/\s*\+", "-/+", s)
     return s
 
 
@@ -164,6 +188,59 @@ def _fix_remaining_ocr_artifacts(text: str) -> str:
     return text
 
 
+_SAN_INLINE_RE = r'(?:[KQRBN])?(?:[a-h][1-8]|[a-h]x[a-h][1-8]|[a-h]x?[a-h][1-8])(?:=[QRBN])?(?:[+#])?(?:[!?]{0,2})'
+
+
+def _fix_prose_chess_artifacts(text: str) -> str:
+    if not text:
+        return text
+
+    text = re.sub(
+        r'\bmog[ęe]\s+wygra[cć]\s+z\s+(\d+\.\.\.[A-Za-z0-9O\-+=#/]+)',
+        r'mogę wygrać po \1',
+        text,
+        flags=re.IGNORECASE,
+    )
+    text = re.sub(
+        r'\bz ruchu tekstowego\b',
+        'z ruchu z partii',
+        text,
+        flags=re.IGNORECASE,
+    )
+    text = re.sub(rf'\.\.\.\s+(?={_SAN_INLINE_RE}\b)', ' ', text)
+    text = re.sub(
+        rf'\b(zar[oó]wno)\s+({_SAN_INLINE_RE})\s+(jak i)\s+({_SAN_INLINE_RE})\b',
+        r'\1 \2, \3 \4',
+        text,
+        flags=re.IGNORECASE,
+    )
+    text = re.sub(r'(?<=\S)\s+(-\+|\+/-|-/\+)', r'\1', text)
+    return text
+
+
+def _normalize_soft_prose_linebreaks(text: str) -> str:
+    """Collapse OCR line-wrap newlines inside prose while keeping paragraphs."""
+    if not text or "\n" not in text:
+        return text
+
+    marker = "\uE000"
+    text = text.replace("\r", "")
+    text = text.replace("\n\n", marker)
+
+    # Common case: comma/semicolon/colon followed by wrapped lowercase continuation.
+    text = re.sub(r'([,;:])\n(?=\p{Ll})', r'\1 ', text)
+    # Single wrapped lowercase words (e.g. "który\nwykonałem").
+    text = re.sub(r'(\b\p{L}{1,14})\n(?=\p{Ll})', r'\1 ', text)
+    # General lowercase-to-lowercase wraps from scanned line breaks.
+    text = re.sub(r'(?<=\p{Ll})\n(?=\p{Ll})', ' ', text)
+    # Wraps before next move number (e.g. "... 25...Ne5\n26.Qe2 ...").
+    text = re.sub(r'(?<=\S)\n(?=\d{1,3}\.)', ' ', text)
+
+    text = text.replace(marker, "\n\n")
+    text = re.sub(r' {2,}', ' ', text)
+    return text
+
+
 def _fix_misplaced_bold_markers(marked: str) -> str:
     def fix_marker(match):
         content = match.group(1)
@@ -202,6 +279,8 @@ def postprocess_translated_marked(marked: str) -> str:
     s = _fix_spaced_punctuation(s)
     s = _strip_garbage_suffixes_after_square(s)
     s = _fix_remaining_ocr_artifacts(s)
+    s = _fix_prose_chess_artifacts(s)
+    s = _normalize_soft_prose_linebreaks(s)
     s = _newline_after_bold_move(s)
     s = re.sub(r'(\b\d{1,3})\s*,\s*', r'\1. ', s)
     s = re.sub(r'\n{3,}', '\n\n', s)

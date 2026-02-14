@@ -29,6 +29,34 @@ _PIECE_FIXES = {
     "Kr": "K",
 }
 
+_FIGURINE_TRANSLATION = str.maketrans({
+    "\u2654": "K",
+    "\u2655": "Q",
+    "\u2656": "R",
+    "\u2657": "B",
+    "\u2658": "N",
+    "\u2659": "",
+    "\u265A": "K",
+    "\u265B": "Q",
+    "\u265C": "R",
+    "\u265D": "B",
+    "\u265E": "N",
+    "\u265F": "",
+    "\u2020": "+",
+    "\u2021": "+",
+    "\u271d": "+",
+    "\u271e": "+",
+})
+
+
+def _normalize_piece_glyphs(text: str) -> str:
+    if not text:
+        return text
+    text = text.translate(_FIGURINE_TRANSLATION)
+    text = re.sub(r"\+\s*/\s*-", "+/-", text)
+    text = re.sub(r"-\s*/\s*\+", "-/+", text)
+    return text
+
 
 def _fix_piece_letters(translated: str) -> str:
     t = translated
@@ -170,6 +198,37 @@ def _fix_genitive_errors(text: str) -> str:
     return text
 
 
+def _fix_move_phrase_artifacts(text: str) -> str:
+    text = re.sub(
+        r"\bmog[ęe]\s+wygra[cć]\s+z\s+(\d+\.\.\.[A-Za-z0-9O\-+=#/]+)",
+        r"mogę wygrać po \1",
+        text,
+        flags=re.IGNORECASE,
+    )
+    text = re.sub(
+        r"\bz ruchu tekstowego\b",
+        "z ruchu z partii",
+        text,
+        flags=re.IGNORECASE,
+    )
+    return text
+
+
+def _normalize_soft_prose_linebreaks(text: str) -> str:
+    if not text or "\n" not in text:
+        return text
+
+    marker = "__PARA_BREAK__"
+    text = text.replace("\r", "")
+    text = text.replace("\n\n", marker)
+    text = re.sub(r"([,;:])\n(?=[a-z])", r"\1 ", text, flags=re.IGNORECASE)
+    text = re.sub(r"(\b\w{1,14})\n(?=[a-z])", r"\1 ", text, flags=re.IGNORECASE)
+    text = re.sub(r"(?<=\w)\n(?=[a-z])", " ", text, flags=re.IGNORECASE)
+    text = text.replace(marker, "\n\n")
+    text = re.sub(r" {2,}", " ", text)
+    return text
+
+
 def _normalize_chess_terms(text: str) -> str:
     def _preserve_case(match: re.Match, replacement: str) -> str:
         token = match.group(0)
@@ -202,6 +261,7 @@ def postprocess_translation(translated: str, original: str) -> str:
     """Main postprocessing function - fixes common translation errors."""
     t = translated or ""
 
+    t = _normalize_piece_glyphs(t)
     t = _fix_queen_D(t)
     t = _fix_piece_letters(t)
     t = _fix_merged_prepositions(t)
@@ -211,6 +271,8 @@ def postprocess_translation(translated: str, original: str) -> str:
     t = _normalize_chess_terms(t)
     t = _fix_chess_idioms(t)
     t = _fix_genitive_errors(t)
+    t = _fix_move_phrase_artifacts(t)
+    t = _normalize_soft_prose_linebreaks(t)
     t = _cleanup_spacing(t)
 
     return t
